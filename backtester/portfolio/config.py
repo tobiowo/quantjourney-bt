@@ -56,3 +56,25 @@ class CalcConfig(BaseModel):
 def get_default_config() -> CalcConfig:
     """Return a config instance resolved from environment variables."""
     return CalcConfig.from_env()
+
+
+DEFAULT_RISK_FREE_RATE = 0.02
+
+
+def resolve_risk_free_rate(config: CalcConfig | None = None) -> float:
+    """Annual risk-free rate shared by every risk-adjusted metric.
+
+    Precedence: explicit configuration, then ``QJ_RF_RATE_ANNUAL``, then the
+    documented 2% default. Keeping the resolution in one place stops the report
+    summary, metrics table and chart captions from reporting different Sharpe
+    ratios for the same run.
+    """
+    if config is not None and config.risk_free_rate_annual is not None:
+        return float(config.risk_free_rate_annual)
+    raw = os.getenv("QJ_RF_RATE_ANNUAL")
+    if raw not in (None, ""):
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return DEFAULT_RISK_FREE_RATE

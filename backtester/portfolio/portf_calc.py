@@ -21,7 +21,7 @@ import pandas as pd
 
 from backtester.portfolio.calc import returns as calc_returns
 from backtester.portfolio.calc import risk as calc_risk
-from backtester.portfolio.config import CalcConfig, get_default_config
+from backtester.portfolio.config import CalcConfig, get_default_config, resolve_risk_free_rate
 from backtester.portfolio.instr_calc import InstrumentCalculations
 from backtester.portfolio.portf_data import PortfolioData
 
@@ -70,7 +70,7 @@ class PortfolioCalculations:
                 config = config.model_copy(update={"days_per_year": max(int(periods_per_year), 1)})
         self._config = config
         self.trading_days = int(self._config.days_per_year)
-        self.risk_free_rate = float(self._config.risk_free_rate_annual or 0.0)
+        self.risk_free_rate = resolve_risk_free_rate(self._config)
 
     # Accessors --------------------------------------------------------
     @property

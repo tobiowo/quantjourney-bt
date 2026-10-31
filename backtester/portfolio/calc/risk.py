@@ -31,6 +31,9 @@ def sharpe_ratio(
     rf_daily = risk_free_rate / float(days_per_year)
     excess = returns - rf_daily
     ratio = excess.mean() / excess.std()
+    # A flat or single-observation series has zero dispersion; report it as
+    # undefined rather than as an infinite Sharpe.
+    ratio = ratio.replace([np.inf, -np.inf], np.nan)
     if annualize:
         ratio = ratio * np.sqrt(days_per_year)
     return ratio

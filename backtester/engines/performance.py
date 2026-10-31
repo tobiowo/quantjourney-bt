@@ -38,6 +38,7 @@ from backtester.portfolio import (
     PortfolioCalculations,
     PortfolioPlots,
 )
+from backtester.portfolio.config import resolve_risk_free_rate
 from backtester.utils.logger import logger
 
 RESULTS_PATH = Path("./reports")
@@ -46,7 +47,7 @@ RESULTS_PATH = Path("./reports")
 @dataclass
 class StrategyPerformanceConfig:
     dpi: int = field(default=300)
-    risk_free_rate: float = field(default=0.02)
+    risk_free_rate: float = field(default_factory=resolve_risk_free_rate)
     confidence_level: float = field(default=0.95)
     lookback_window: int = field(default=252)
     show_text_reports: bool = field(default=True)

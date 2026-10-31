@@ -99,7 +99,7 @@ class PortfolioData:
     volatility: pd.Series | None = None
     total_pnl: pd.Series | None = None
     total_transaction_costs: pd.Series | None = None
-    sharpe_ratio: pd.Series | None = None
+    sharpe_ratio: float | None = None
     drawdown: pd.Series | None = None
     _version: int = field(default=0, repr=False)
     _skip_initial_metrics: bool = field(default=False, repr=False)
@@ -289,13 +289,17 @@ class PortfolioData:
         # Calculate Sharpe ratio if returns and volatility are available
         metric_returns = self.returns_for_metrics
         if not metric_returns.isna().all() and not self.volatility.isna().all():
-            risk_free_rate = 0.02  # 2% annual — consistent with PortfolioCalculations
-            excess_returns = metric_returns - risk_free_rate / periods_per_year
-            std_dev = excess_returns.std()
-            if std_dev > 0:  # Prevent division by zero
-                self.sharpe_ratio = excess_returns.mean() / std_dev * np.sqrt(periods_per_year)
-            else:
-                self.sharpe_ratio = None
+            from backtester.portfolio.calc.risk import sharpe_ratio as _sharpe
+            from backtester.portfolio.config import resolve_risk_free_rate
+
+            values = _sharpe(
+                metric_returns.to_frame(),
+                risk_free_rate=resolve_risk_free_rate(),
+                days_per_year=periods_per_year,
+                annualize=True,
+            )
+            computed = float(values.iloc[0]) if len(values) else float("nan")
+            self.sharpe_ratio = None if pd.isna(computed) else computed
 
     # Properties -----------------------------------------------------------------
 

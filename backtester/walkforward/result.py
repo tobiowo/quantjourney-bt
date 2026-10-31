@@ -79,9 +79,6 @@ class FoldResult:
     rank_stability_candidate_oos: list[float] | None = None
     rank_stability_selected_logit: float | None = None
 
-    # Cost sensitivity (optional)
-    cost_sensitivity: dict[int, dict[str, float]] | None = None
-
     @property
     def pbo_candidate_oos(self) -> list[float] | None:
         """Deprecated compatibility alias for rank-stability candidates."""
@@ -135,9 +132,6 @@ class WalkForwardResult:
     param_stability: dict[str, float] | None = None
     param_trajectory: pd.DataFrame | None = None
     param_jaccard: float | None = None
-
-    # ── Cost sensitivity ──
-    cost_sensitivity: pd.DataFrame | None = None
 
     # ── Meta ──
     fingerprint: str = ""
@@ -236,9 +230,6 @@ class WalkForwardResult:
                 }
             )
         d["folds"] = fold_summaries
-
-        if self.cost_sensitivity is not None:
-            d["cost_sensitivity"] = self.cost_sensitivity.to_dict(orient="records")
 
         return d
 

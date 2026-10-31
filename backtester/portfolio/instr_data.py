@@ -660,7 +660,6 @@ class InstrumentData:
         strategy_name: str = None,
         level: str = None,
         date_range: slice | tuple[str, str] = None,
-        include_non_trading_days: bool = False,
     ) -> pd.DataFrame:
         """
         Return the data for the given feature.

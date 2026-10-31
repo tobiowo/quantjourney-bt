@@ -299,7 +299,6 @@ async def _run(strategy: str) -> dict:
         save_text_reports=False,
         save_portfolio_plots=False,
         show_portfolio_plots=False,
-        save_pdf_report=False,
         benchmark_symbol="^GSPC",
         skip_analysis=True,
         lite_init=True,

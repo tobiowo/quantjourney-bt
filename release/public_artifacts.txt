@@ -16,7 +16,6 @@ both backtester/data/payload.py
 both backtester/data/sources.py
 both backtester/data/yahoo_source.py
 both backtester/engines/__init__.py
-both backtester/engines/benchmark.py
 both backtester/engines/blotter.py
 both backtester/engines/performance.py
 both backtester/execution/__init__.py

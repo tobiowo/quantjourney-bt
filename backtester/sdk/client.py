@@ -286,19 +286,6 @@ class PrepareValidationError(APIError):
 
 
 @dataclass
-class APIResponse:
-    """Wrapper for API responses."""
-
-    success: bool
-    data: Any
-    error: str | None = None
-    status_code: int = 200
-    request_id: str | None = None  # X-Request-ID from response
-
-    def __bool__(self):
-        return self.success
-
-
 class DomainResponse:
     """Wrapper for domain API responses that preserves meta information.
 
@@ -1105,7 +1092,6 @@ __all__ = [
     "APIError",
     "BacktesterAccessError",
     "PrepareValidationError",
-    "APIResponse",
     "ConnectorEndpoint",
     "DomainResponse",
 ]

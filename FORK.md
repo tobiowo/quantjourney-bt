@@ -18,12 +18,13 @@ is kept as a read-only source of engine fixes.
 |---|---|
 | Local data | `backtester/data/` providers (CSV, Parquet, Yahoo, in-memory), shared payload builder, `Backtester(data_provider=...)` |
 | Metrics | One risk-free-rate resolver; Sharpe/Sortino agree across summary, metrics table and charts; flat series report an undefined Sharpe |
+| Execution | Order quantities round to the contract increment; trade notionals apply futures/FX multiplier and lot size; O05/O07 breakout levels use raw close instead of dividend-adjusted close |
 | Sample data | `sample_data.py` rebuilt on the shared payload builder (output unchanged) |
-| Tests | Provider schema/end-to-end, metrics consistency, order-lifecycle coverage (limit, stop, stop-limit, trailing, bracket, OCO) |
+| Tests | Provider schema/end-to-end, metrics consistency, order-lifecycle coverage (limit, stop, stop-limit, trailing, bracket, OCO), contract sizing |
 | Tooling | `tools/byo_data_demo.py`, `tools/check_private_artifacts.py`, `tools/install_pre_commit_hook.py` |
 
-`main` also carries a reviewed `quality/mypy-baseline.json` refresh (788 → 782
-diagnostics) caused by removing the duplicated sample-data helpers.
+`main` also carries a reviewed `quality/mypy-baseline.json` refresh (788 → 710
+diagnostics) caused by removing duplicated helpers and dead code.
 
 ## Working here
 
@@ -48,8 +49,8 @@ repository are free; larger runners are not.
 redirected to Yahoo bars; `compare_catalog_local.py` joins the results with the
 published quants.md cards. Last full run: 43 executed, 7 skipped (5 intraday,
 2 optimizer workflows), 0 failures. Against the 40 strategies with published
-metrics the Sharpe correlation was 0.97 (return 0.99), median absolute Sharpe
-delta 0.024, and 98% of strategies were within 0.25.
+metrics the Sharpe correlation was 0.98 (return 0.99), median absolute Sharpe
+delta 0.015, and 100% of strategies were within 0.25.
 
 Runs are data-dependent: Yahoo returns adjusted closes that differ by ~1e-5
 between identical requests, and path-dependent strategies (partial rebalancing,

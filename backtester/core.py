@@ -1026,8 +1026,8 @@ class Backtester(SDKClientMixin, ReportingMixin):
         instrument: str,
         quantity_delta: float,
         *,
-        order_type=None,
-        **order_kwargs,
+        order_type: Any = None,
+        **order_kwargs: Any,
     ) -> str | None:
         from backtester.execution import Order, OrderType
 
@@ -1039,10 +1039,18 @@ class Backtester(SDKClientMixin, ReportingMixin):
         resolved_order_type = self._normalize_order_type(order_type) or OrderType.MARKET
         order_kwargs = dict(order_kwargs)
         order_kwargs.setdefault("created_at", ctx.get("date"))
+        # Round to the instrument's executable increment (whole shares for
+        # equities, whole contracts/lots for futures and FX). A nonzero delta
+        # that rounds to zero must not produce an order.
+        rounded_quantity = self._contract_spec(instrument).round_quantity(
+            abs(float(quantity_delta))
+        )
+        if rounded_quantity <= 0.0:
+            return None
         order = Order(
             instrument=instrument,
             side=self._order_side_from_delta(quantity_delta),
-            quantity=abs(float(quantity_delta)),
+            quantity=rounded_quantity,
             order_type=resolved_order_type,
             **order_kwargs,
         )
@@ -2143,6 +2151,14 @@ class Backtester(SDKClientMixin, ReportingMixin):
 
             trade_dates = instrument_trades.index
             trade_prices = prices.loc[trade_dates, instrument]
+            # Contract-aware traded notional: futures/FX apply multiplier and
+            # lot size, so qty * price alone would understate cash flow.
+            trade_values = [
+                self._trade_notional(instrument, abs(float(quantity)), float(price))
+                for quantity, price in zip(
+                    instrument_trades.to_numpy(), trade_prices.to_numpy(), strict=True
+                )
+            ]
 
             trades_df = pd.DataFrame(
                 {
@@ -2151,7 +2167,7 @@ class Backtester(SDKClientMixin, ReportingMixin):
                     "Side": np.where(instrument_trades > 0, "buy", "sell"),
                     "Quantity": abs(instrument_trades),
                     "Price": trade_prices,
-                    "TradeValue": abs(instrument_trades * trade_prices),
+                    "TradeValue": trade_values,
                 }
             )
             if transaction_costs is not None:

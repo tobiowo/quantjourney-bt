@@ -10,6 +10,11 @@ both backtester/cli/qj_data_api.py
 both backtester/cli/qj_data_views.py
 both backtester/cli/strategy_runner.py
 both backtester/core.py
+both backtester/data/__init__.py
+both backtester/data/base.py
+both backtester/data/payload.py
+both backtester/data/sources.py
+both backtester/data/yahoo_source.py
 both backtester/engines/__init__.py
 both backtester/engines/benchmark.py
 both backtester/engines/blotter.py
@@ -106,6 +111,7 @@ sdist CHANGELOG.md
 sdist CONTRIBUTING.md
 sdist WINDOWS.md
 sdist compare/README.md
+sdist docs/local-data-provider.md
 sdist docs/performance-0.12.4.md
 sdist docs/public_scope.md
 sdist docs/release.md

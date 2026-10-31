@@ -400,8 +400,19 @@ class PortfolioPlots:
         total_ret = (cum.iloc[-1] / cum.iloc[0] - 1) * 100
         n_years = max((cum.index[-1] - cum.index[0]).days / 365.25, 1e-6)
         ann_ret = ((cum.iloc[-1] / cum.iloc[0]) ** (1 / n_years) - 1) * 100
-        ann_vol = returns.std() * np.sqrt(252) * 100
-        sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
+        from backtester.portfolio.calc.risk import sharpe_ratio as _sharpe
+        from backtester.portfolio.config import resolve_risk_free_rate
+
+        metric_returns = getattr(portfolio_calc, "metric_returns", returns)
+        periods = int(getattr(portfolio_calc, "trading_days", 252))
+        values = _sharpe(
+            metric_returns.to_frame(),
+            risk_free_rate=resolve_risk_free_rate(),
+            days_per_year=periods,
+            annualize=True,
+        )
+        computed = float(values.iloc[0]) if len(values) else float("nan")
+        sharpe = 0.0 if pd.isna(computed) else computed
         dd = cum / cum.cummax() - 1
         max_dd = dd.min() * 100
         subtitle = (

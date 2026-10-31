@@ -266,6 +266,7 @@ class Backtester(SDKClientMixin, ReportingMixin):
         source: str = "yfinance",
         granularity: str = "1d",
         data_provider: Any = None,  # backtester.data provider; bypasses /bt/prepare
+        cash_buffer: float | None = None,  # weight-mode cash reserve; 5% when None
         # ── Strategy Config ──
         strategy_name: str = "cloud_strategy",
         strategy_type: str = "Long-Short",
@@ -397,6 +398,11 @@ class Backtester(SDKClientMixin, ReportingMixin):
         self._source = source
         self._granularity = _normalize_granularity(granularity)
         self._data_provider = data_provider
+        if cash_buffer is not None:
+            cash_buffer = float(cash_buffer)
+            if not 0.0 <= cash_buffer <= 1.0:
+                raise ValueError(f"cash_buffer must be between 0 and 1, got {cash_buffer!r}")
+        self._cash_buffer = cash_buffer
         self._persist = persist
         self._dedupe = dedupe
         self._force_refresh = force_refresh
@@ -589,6 +595,8 @@ class Backtester(SDKClientMixin, ReportingMixin):
                 ignored_knobs.append("weight_execution")
             if weight_cost_model_explicit:
                 ignored_knobs.append("weight_cost_model")
+            if cash_buffer is not None:
+                ignored_knobs.append("cash_buffer")
             if rebalance_policy is not None:
                 ignored_knobs.append("rebalance_policy")
             if risk_model is not None:
@@ -767,12 +775,15 @@ class Backtester(SDKClientMixin, ReportingMixin):
         )
 
         # 9) Build PortfolioData
-        self.portfolio_data = PortfolioData(
-            instruments=self.instruments_data,
-            net_asset_value=nav_series,
-            periods_per_year=infer_periods_per_year(prices_df.index),
-            _skip_initial_metrics=self._lite_init,
-        )
+        portfolio_kwargs: dict[str, Any] = {
+            "instruments": self.instruments_data,
+            "net_asset_value": nav_series,
+            "periods_per_year": infer_periods_per_year(prices_df.index),
+            "_skip_initial_metrics": self._lite_init,
+        }
+        if self._cash_buffer is not None:
+            portfolio_kwargs["cash_buffer"] = self._cash_buffer
+        self.portfolio_data = PortfolioData(**portfolio_kwargs)
 
         # 10) Process technical indicators (locally)
         if self.indicators_config:

@@ -48,12 +48,19 @@ repository are free; larger runners are not.
 redirected to Yahoo bars; `compare_catalog_local.py` joins the results with the
 published quants.md cards. Last full run: 43 executed, 7 skipped (5 intraday,
 2 optimizer workflows), 0 failures. Against the 40 strategies with published
-metrics the Sharpe correlation was 0.97 (return 0.98), median absolute Sharpe
+metrics the Sharpe correlation was 0.97 (return 0.99), median absolute Sharpe
 delta 0.024, and 98% of strategies were within 0.25.
 
-Treat this as a data-source sanity check, not parity: the published cards use
-QuantJourney-managed data and execution assumptions, order-mode OHLC comes from
-Yahoo, and FX/futures examples run without provider contract specs.
+Runs are data-dependent: Yahoo returns adjusted closes that differ by ~1e-5
+between identical requests, and path-dependent strategies (partial rebalancing,
+drift or threshold triggers) can bifurcate on that jitter. W12, for example,
+alternates between roughly +237% and +269% total return when each run fetches
+fresh bars. Pass `--cache-dir` to persist the first fetch; cached reruns are
+bit-identical (43/43 metric rows matched in the last paired run).
+
+Treat the comparison as a data-source sanity check, not parity: the published
+cards use QuantJourney-managed data and execution assumptions, order-mode OHLC
+comes from Yahoo, and FX/futures examples run without provider contract specs.
 
 ## Staying current with upstream
 

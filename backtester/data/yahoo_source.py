@@ -113,6 +113,21 @@ class YahooDataProvider:
             payload = json.loads(response.read().decode())
         return chart_payload_to_frame(payload, symbol)
 
+    def load_frames(
+        self,
+        *,
+        instruments: list[str],
+        start: str,
+        end: str,
+        granularity: str,
+    ) -> dict[str, pd.DataFrame]:
+        """Fetch raw OHLCV frames, before payload construction."""
+        interval = self._interval_for(granularity)
+        return {
+            str(symbol).strip().upper(): self._fetch(str(symbol), start, end, interval)
+            for symbol in instruments
+        }
+
     def load(
         self,
         *,
@@ -121,11 +136,12 @@ class YahooDataProvider:
         end: str,
         granularity: str,
     ) -> dict[str, Any]:
-        interval = self._interval_for(granularity)
-        frames = {
-            str(symbol).strip().upper(): self._fetch(str(symbol), start, end, interval)
-            for symbol in instruments
-        }
+        frames = self.load_frames(
+            instruments=instruments,
+            start=start,
+            end=end,
+            granularity=granularity,
+        )
         return build_payload(
             frames,
             source="yahoo",

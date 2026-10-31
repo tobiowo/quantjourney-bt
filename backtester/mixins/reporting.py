@@ -12,12 +12,14 @@ Copyright (c) 2026 QuantJourney.
 Licensed under the Apache License 2.0.
 """
 
+import hashlib
 import json
 import logging
 import math
 import numbers
 import os
 import platform
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -199,6 +201,10 @@ class ReportingMixin:
             "granularity": getattr(self, "_granularity", None),
             "execution_mode": getattr(self, "execution_mode", None),
             "rebalance_policy": str(getattr(self, "_rebalance_policy", "")),
+            "execution": self._execution_metadata(),
+            "costs": self._cost_metadata(),
+            "git_revision": self._git_revision(),
+            "data_fingerprint": self._data_fingerprint(),
             "reporting_frequency": getattr(self, "_reporting_frequency", None),
             "theme_plots": getattr(self, "_theme_plots", None),
             "plot_dpi": getattr(self, "_plot_dpi", None),
@@ -230,6 +236,72 @@ class ReportingMixin:
             "run_started_at": getattr(self, "_run_started_at", None),
             "metadata_generated_at": datetime.now(UTC).isoformat(),
         }
+
+    def _execution_metadata(self) -> dict[str, Any]:
+        """Capture the execution assumptions one run was reviewed under."""
+        fill_engine = getattr(self, "fill_engine", None)
+        risk_model = getattr(self, "_risk_model", None)
+        pre_trade_risk = getattr(self, "pre_trade_risk", None)
+        return {
+            "mode": getattr(self, "execution_mode", None),
+            "weight_execution": getattr(self, "weight_execution", None),
+            "fill_at": getattr(fill_engine, "fill_at", None),
+            "rebalance_policy": str(getattr(self, "_rebalance_policy", "")),
+            "risk_model": type(risk_model).__name__ if risk_model is not None else None,
+            "pre_trade_risk": (
+                type(pre_trade_risk).__name__ if pre_trade_risk is not None else None
+            ),
+        }
+
+    def _cost_metadata(self) -> dict[str, Any]:
+        """Capture the cost model so a run can be reproduced and compared."""
+        fill_engine = getattr(self, "fill_engine", None)
+        weight_cost_model = getattr(self, "weight_cost_model", None)
+        return {
+            "transaction_cost_fraction": getattr(self, "TRANSACTION_COST_BPS", None),
+            "weight_cost_model": (
+                type(weight_cost_model).__name__ if weight_cost_model is not None else None
+            ),
+            "slippage_model": (
+                type(fill_engine.slippage).__name__ if fill_engine is not None else None
+            ),
+            "commission_scheme": (
+                type(fill_engine.commission).__name__ if fill_engine is not None else None
+            ),
+            "max_volume_participation": getattr(fill_engine, "max_volume_participation", None),
+        }
+
+    @staticmethod
+    def _git_revision() -> str | None:
+        """Return the current commit SHA when running from a checkout."""
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=Path(__file__).resolve().parents[2],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if completed.returncode != 0:
+            return None
+        return completed.stdout.strip() or None
+
+    def _data_fingerprint(self) -> str | None:
+        """SHA-256 over the price panel so two runs' inputs can be compared."""
+        prices = getattr(getattr(self, "instruments_data", None), "prices", None)
+        if prices is None or getattr(prices, "empty", True):
+            return None
+        try:
+            import pandas as pd
+
+            hashed = pd.util.hash_pandas_object(prices, index=True).to_numpy()
+            digest = hashlib.sha256(hashed.tobytes()).hexdigest()
+        except (ImportError, TypeError, ValueError):
+            return None
+        return f"sha256:{digest}"
 
     # ─────────────────────────────────────────────────────────────────
     # Blotter Utilities

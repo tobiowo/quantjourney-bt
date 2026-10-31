@@ -1029,6 +1029,10 @@ class AsyncAPIClient:
                 self._cache.set(cache_key, etag, data)
 
             return data
+        except APIError:
+            # Preserve the structured error (error_code, request_id, status)
+            # raised by _handle_json instead of re-wrapping it generically.
+            raise
         except Exception as e:
             response = getattr(e, "response", None)
             error_body = None

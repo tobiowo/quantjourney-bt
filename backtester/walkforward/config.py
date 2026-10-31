@@ -11,7 +11,7 @@ Licensed under the Apache License 2.0.
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
@@ -30,7 +30,6 @@ class WalkForwardConfig:
     test_months: int = 6
     min_train_months: int = 12
     step_months: int | None = None  # default = test_months
-    n_splits: int | None = None  # CPCV only
 
     # ── Pre-OOS Purging ───────────────────────────────────────────────
     purge_days: int = 5
@@ -40,9 +39,6 @@ class WalkForwardConfig:
     # Deprecated compatibility alias for extra_pre_oos_purge_pct.
     embargo_pct: float = 0.01
     max_holding_period_days: int | None = None
-
-    # ── Optimization ──────────────────────────────────────────────────
-    optimization: dict[str, Any] | None = None
 
     # ── Statistical Controls ──────────────────────────────────────────
     compute_deflated_sharpe: bool = True
@@ -64,13 +60,10 @@ class WalkForwardConfig:
     min_oos_sharpe: float = 0.0
 
     # ── Cost Sensitivity ──────────────────────────────────────────────
-    cost_sensitivity_bps: list[int] = field(default_factory=lambda: [0, 5, 10, 20])
     base_slippage_model: Any = None  # SlippageModel instance
     base_commission_scheme: Any = None  # CommissionScheme instance
 
     # ── Execution ─────────────────────────────────────────────────────
-    max_workers: int = 1
-    n_jobs_optimizer: int = -1
     verbose: bool = True
     seed: int = 42
 

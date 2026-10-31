@@ -23,7 +23,6 @@ import pandas as pd
 # Optional numba support: provide graceful fallbacks when unavailable
 try:
     from numba import njit  # type: ignore
-    from numba.typed import List as NumbaList  # type: ignore
 except Exception:  # numba not installed or unsupported python version
 
     def njit(*args, **kwargs):  # type: ignore
@@ -32,8 +31,6 @@ except Exception:  # numba not installed or unsupported python version
 
         return _decorator
 
-    # Fallback: use built-in list as a stand-in for numba.typed.List
-    NumbaList = list  # type: ignore
 
 from backtester.utils.logger import logger
 

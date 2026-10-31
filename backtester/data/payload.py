@@ -19,27 +19,6 @@ import pandas as pd
 
 from backtester.data.base import normalize_price_frame
 
-METRIC_FIELDS = (
-    "returns",
-    "volatility",
-    "daily_pnl",
-    "transaction_costs",
-    "net_asset_value",
-    "gross_asset_value",
-    "daily_net_return",
-    "drawdown",
-)
-
-PARAMETER_FIELDS = (
-    "exchange",
-    "units",
-    "eligibility",
-    "active",
-    "forecasts",
-    "is_trading_day",
-    "day_type",
-)
-
 
 def frame_payload(frame: pd.DataFrame) -> dict[str, Any]:
     """Encode an (instrument, field) DataFrame in the API's JSON shape."""

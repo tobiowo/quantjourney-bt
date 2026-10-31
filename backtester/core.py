@@ -66,8 +66,8 @@ except Exception:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
 # ---------------------------------------------------------------------------
-# Dataclass stubs — BacktestPeriod & PortfolioState
-# We define lightweight copies so the file can run without importing
+# Dataclass stubs — BacktestPeriod
+# We define a lightweight copy so the file can run without importing
 # the full learning_backtester (which pulls in DataConnector, plots, etc.)
 # ---------------------------------------------------------------------------
 
@@ -76,12 +76,6 @@ except Exception:
 class BacktestPeriod:
     start: str
     end: str
-
-
-@dataclass
-class PortfolioState:
-    nav: float = 0.0
-    cash: float = 0.0
 
 
 SUPPORTED_GRANULARITIES = {
@@ -279,7 +273,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
         indicators_config: list[dict[str, Any]] | None = None,
         # ── Reporting ──
         reports_directory: str = "./reports",
-        plots_directory: str = "./plots",
         theme_plots: str = "quantjourney",
         show_text_reports: bool = True,
         save_text_reports: bool = False,
@@ -287,7 +280,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
         show_portfolio_plots: bool = False,
         save_instrument_plots: bool = False,
         show_instrument_plots: bool = False,
-        save_pdf_report: bool = False,
         reporting_frequency: str = "daily",
         # ── BT API options ──
         persist: bool = True,
@@ -389,7 +381,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
         self._email = email
         self._password = password
         self._api_key = api_key
-        self._token: str | None = None
 
         # ── SDK async client (lazy-initialized) ──
         self._sdk_client = None
@@ -431,7 +422,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
 
         # ── Reporting ──
         self._reports_directory = os.environ.get("QJ_OUTPUT_DIR", reports_directory)
-        self._plots_directory = plots_directory
         self._theme_plots = os.environ.get("QJ_PLOT_THEME", theme_plots)
         self._plot_dpi = _env_int("QJ_PLOT_DPI", 300)
         self._benchmark = {
@@ -451,7 +441,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
             save_text_reports = False
             save_portfolio_plots = False
             save_instrument_plots = False
-            save_pdf_report = False
             skip_analysis = True
         self._show_text_reports = show_text_reports
         self._save_text_reports = save_text_reports
@@ -459,7 +448,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
         self._show_portfolio_plots = show_portfolio_plots
         self._save_instrument_plots = save_instrument_plots
         self._show_instrument_plots = show_instrument_plots
-        self._save_pdf_report = save_pdf_report
         self._reporting_frequency = os.environ.get(
             "QJ_REPORTING_FREQUENCY",
             reporting_frequency,
@@ -472,12 +460,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
             _env_flag("QJ_STRICT_DATA_FETCH", strict_data_default),
         )
         self._allow_partial_data = bool(allow_partial_data)
-
-        # ── Portfolio state ──
-        self.portfolio = PortfolioState(
-            nav=self.initial_capital,
-            cash=self.initial_capital,
-        )
 
         # Transaction cost as a FRACTION of trade value — single source of
         # truth. NOTE: despite the legacy name this is NOT expressed in basis
@@ -611,7 +593,7 @@ class Backtester(SDKClientMixin, ReportingMixin):
             )
 
         # ── Universe (lazy-initialized on first access) ──
-        self._universe = None
+        self._universe: Any = None
 
         # ── Components (lazy-loaded to avoid heavy import chains) ──
         self.ti = None  # initialized on first use
@@ -666,10 +648,7 @@ class Backtester(SDKClientMixin, ReportingMixin):
             from backtester.universe import Universe
 
             close = self.instruments_data.get_feature("adj_close")
-            self._universe = Universe(
-                _close=close,
-                _sectors=getattr(self, "_sector_map", {}),
-            )
+            self._universe = Universe(_close=close)
         return self._universe
 
     # ─────────────────────────────────────────────────────────────────
@@ -1499,25 +1478,11 @@ class Backtester(SDKClientMixin, ReportingMixin):
         close = self.instruments_data.get_feature("adj_close")
         returns = self._compute_returns_preserve_gaps(close)
 
-        # Pass the sector map so sector_limits in PositionLimitModel (which
-        # require metadata={"sectors": {instrument: sector}}) can actually fire.
-        sector_map = getattr(self, "_sector_map", None)
         metadata = {"periods_per_year": getattr(self.portfolio_data, "periods_per_year", 252)}
-        if sector_map:
-            metadata["sectors"] = sector_map
         adjusted = self._risk_model.adjust(weights, returns, metadata=metadata)
         adjusted = self._validate_weights(adjusted)
 
         # Overwrite weights with risk-adjusted version
-        # Drop existing weight columns first (add_strategy_data appends, not replaces)
-        strats = self.instruments_data.strategies
-        if not strats.empty:
-            keep_mask = ~(
-                (strats.columns.get_level_values(0) == self.strategy_name)
-                & (strats.columns.get_level_values(1) == "weights")
-            )
-            self.instruments_data.strategies = strats.loc[:, keep_mask]
-
         self.instruments_data.add_strategy_data(self.strategy_name, "weights", adjusted)
         logger.info(f"[Risk] Applied {self._risk_model} to weights")
 
@@ -1924,13 +1889,6 @@ class Backtester(SDKClientMixin, ReportingMixin):
     def _trade_notional(self, instrument: str, quantity: float, price: float) -> float:
         return self._contract_spec(instrument).notional(quantity, price)
 
-    def _trade_cash_value(self, instrument: str, quantity: float, price: float) -> float:
-        """Unsigned-quantity transaction value with the market price sign."""
-        spec = self._contract_spec(instrument)
-        if spec.inverse:
-            return spec.notional(quantity, price)
-        return abs(float(quantity)) * float(price) * float(spec.multiplier) * float(spec.lot_size)
-
     def _store_accounting_ledger(self, position_values: pd.DataFrame, cash: pd.Series) -> None:
         """Store and validate NAV components, including lightweight test doubles."""
         self.portfolio_data.position_values = position_values.copy()
@@ -2004,72 +1962,11 @@ class Backtester(SDKClientMixin, ReportingMixin):
             returns.loc[first_idx, first_available] = 0.0
         return returns
 
-    @staticmethod
-    def _weights_from_position_values(
-        position_values: pd.DataFrame, nav: pd.Series
-    ) -> pd.DataFrame:
-        """Weights = position value / NAV, with ±inf (NAV ~ 0) cleaned to 0."""
-        return position_values.divide(nav, axis=0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-
-    def _signed_position_value(self, instrument: str, quantity: float, price: float) -> float:
-        spec = self._contract_spec(instrument)
-        if spec.inverse:
-            # Convention: an inverse position is marked at the NEGATIVE coin
-            # notional (-qty*mult/price). A long inverse contract gains when
-            # price rises (1/price falls), so combined with the mirrored trade
-            # cash flow in the fill loop the per-bar NAV delta equals
-            # qty*mult*(1/p_prev - 1/p_curr) — same sign and magnitude as
-            # ContractSpec.pnl and calc/pnl_multi_asset.compute_position_pnl.
-            return float(-np.sign(quantity) * spec.notional(quantity, price))
-        return float(quantity) * float(price) * float(spec.multiplier) * float(spec.lot_size)
-
-    def _position_values_from_units(
-        self, positions: pd.DataFrame, prices: pd.DataFrame
-    ) -> pd.DataFrame:
-        # Mark at the last valid price through NaN gaps (ffill) so reported
-        # exposure matches the NAV valuation convention: the order-mode NAV
-        # loop carries a gapped position at last_valid_price, so weights /
-        # position_values must not collapse to 0 while NAV stays invested.
-        marked_prices = prices.ffill()
-        values = pd.DataFrame(0.0, index=positions.index, columns=positions.columns)
-        for inst in positions.columns:
-            spec = self._contract_spec(inst)
-            if spec.inverse:
-                # Same negative-coin-notional convention as _signed_position_value.
-                values[inst] = -positions[inst].multiply(
-                    spec.multiplier / marked_prices[inst].replace(0.0, np.nan)
-                )
-            else:
-                values[inst] = (
-                    positions[inst]
-                    .multiply(marked_prices[inst])
-                    .multiply(float(spec.multiplier) * float(spec.lot_size))
-                )
-        return values.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-
     def _instrument_price_frame(self, field: str, *, fallback: str) -> pd.DataFrame:
         try:
             return self.instruments_data.get_feature(field)
         except Exception:
             return self.instruments_data.get_feature(fallback)
-
-    @staticmethod
-    def _updated_average_entry_price(
-        *,
-        previous_position: float,
-        previous_avg_price: float | None,
-        signed_fill_qty: float,
-        fill_price: float,
-    ) -> float | None:
-        """Update average entry price after a signed fill."""
-        from backtester.portfolio.accounting.ledger import PortfolioLedger
-
-        return PortfolioLedger.updated_average_entry_price(
-            previous_position=previous_position,
-            previous_avg_price=previous_avg_price,
-            signed_fill_qty=signed_fill_qty,
-            fill_price=fill_price,
-        )
 
     def _compute_performance_weight_based(self) -> None:
         """

@@ -301,12 +301,10 @@ class SDKClientMixin:
             return
         import pandas as pd
 
-        self._benchmark_returns = pd.Series(
-            benchmark.get("data", []),
-            index=pd.to_datetime(benchmark["index"]),
-            dtype="float64",
-            name="benchmark",
-        )
+        index = pd.DatetimeIndex(pd.to_datetime(list(benchmark["index"])))
+        series = pd.Series(benchmark.get("data", []), index=index).astype("float64")
+        series.name = "benchmark"
+        self._benchmark_returns = series
 
     def _validate_data_completeness_response(self) -> None:
         """Fail closed when the provider declares or reveals a partial universe."""

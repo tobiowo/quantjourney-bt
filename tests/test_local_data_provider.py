@@ -186,3 +186,24 @@ def test_offline_backtest_runs_with_frame_provider(tmp_path) -> None:
     weights = strategy.weights
     assert weights is not None
     assert weights.sum(axis=1).max() <= 1.0 + 1e-9
+
+
+def test_provider_benchmark_returns_are_attached(tmp_path) -> None:
+    prices = _prices()
+    benchmark = pd.Series(np.linspace(0.0, 0.2, len(prices)), index=prices.index)
+    provider = FrameDataProvider({"AAA": prices}, benchmark_returns=benchmark)
+    strategy = _Trend(
+        strategy_name="local_benchmark_test",
+        instruments=["AAA"],
+        backtest_period={"start": "2020-02-01", "end": "2021-01-01"},
+        data_provider=provider,
+        reports_directory=str(tmp_path),
+        skip_analysis=True,
+    )
+
+    asyncio.run(strategy.run_strategy())
+
+    attached = strategy._benchmark_returns
+    assert attached is not None
+    assert len(attached) == len(benchmark)
+    assert attached.name == "benchmark"

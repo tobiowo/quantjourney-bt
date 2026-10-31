@@ -9,7 +9,7 @@
       "types-python-dateutil": "2.9.0.20260518"
     }
   },
-  "error_count": 782,
+  "error_count": 780,
   "errors": [
     "[\"backtester/core.py\",\"arg-type\",\"Argument \\\"dates\\\" to \\\"ExecutionRebalanceEngine\\\" has incompatible type \\\"Index[Any]\\\"; expected \\\"DatetimeIndex\\\"\",\"4d28b5a0297ef8e6\"]",
     "[\"backtester/core.py\",\"arg-type\",\"Argument \\\"fill_engine\\\" to \\\"ExecutionSimulator\\\" has incompatible type \\\"FillEngine | None\\\"; expected \\\"FillEngine\\\"\",\"2430f504bb8d5d3f\"]",
@@ -673,8 +673,6 @@
     "[\"backtester/risk/position_limit.py\",\"assignment\",\"Incompatible types in assignment (expression has type \\\"ndarray[tuple[Any, ...], dtype[Any]] | Any\\\", variable has type \\\"Series[float]\\\")\",\"d90314ee0b4e303a\"]",
     "[\"backtester/risk/position_limit.py\",\"type-arg\",\"Missing type arguments for generic type \\\"dict\\\"\",\"18ac3e7343f01689\"]",
     "[\"backtester/risk/risk_parity.py\",\"attr-defined\",\"\\\"Index[Any]\\\" has no attribute \\\"to_period\\\"\",\"aff4a37de057f497\"]",
-    "[\"backtester/risk/risk_parity.py\",\"no-any-return\",\"Returning Any from function declared to return \\\"ndarray[tuple[Any, ...], dtype[Any]]\\\"\",\"af845e80296cc353\"]",
-    "[\"backtester/risk/risk_parity.py\",\"no-any-return\",\"Returning Any from function declared to return \\\"ndarray[tuple[Any, ...], dtype[Any]]\\\"\",\"afa0b0da82799ce4\"]",
     "[\"backtester/risk/risk_parity.py\",\"type-arg\",\"Missing type arguments for generic type \\\"dict\\\"\",\"18ac3e7343f01689\"]",
     "[\"backtester/risk/vol_target.py\",\"attr-defined\",\"\\\"Index[Any]\\\" has no attribute \\\"to_period\\\"\",\"aff4a37de057f497\"]",
     "[\"backtester/risk/vol_target.py\",\"type-arg\",\"Missing type arguments for generic type \\\"dict\\\"\",\"18ac3e7343f01689\"]",

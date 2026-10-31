@@ -15,7 +15,10 @@ Licensed under the Apache License 2.0.
 
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 try:
     from backtester.utils.logger import logger
@@ -25,6 +28,10 @@ except Exception:
 
 class SDKClientMixin:
     """API authentication, market-data fetching, and server-side calculations."""
+
+    # Declared here so both this mixin and Backtester annotate the attribute
+    # with the same type; local data providers can attach a benchmark series.
+    _benchmark_returns: "pd.Series | None"
 
     @staticmethod
     def _replace_existing_session_enabled() -> bool:
@@ -201,6 +208,34 @@ class SDKClientMixin:
         Fetch market data from /bt/prepare API via the SDK client.
         Auto token refresh on 401 is handled by the SDK.
         """
+        data_provider = getattr(self, "_data_provider", None)
+        if data_provider is not None:
+            # Host attributes live on Backtester, not on this mixin; read them
+            # through an Any-typed handle so the mixin stays type-checkable.
+            host = cast(Any, self)
+            payload = data_provider.load(
+                instruments=list(host.instruments),
+                start=host.backtest_period.start,
+                end=host.backtest_period.end,
+                granularity=host._granularity,
+            )
+            if not isinstance(payload, dict):
+                raise TypeError(
+                    f"data_provider.load() must return a payload dict, got {type(payload).__name__}"
+                )
+            self._api_response = payload
+            self.session_id = payload.get("session_id", "local-session")
+            self.dataset_id = payload.get("dataset_id", "local-dataset")
+            self._apply_provider_benchmark_returns(payload)
+            self._validate_data_completeness_response()
+            summary = payload.get("summary", {})
+            logger.info(
+                f"[Backtester] Local data loaded: "
+                f"session={self.session_id}, dataset={self.dataset_id}, "
+                f"instruments={summary.get('instruments')}, dates={summary.get('dates')}"
+            )
+            return
+
         if self._source == "sample" or os.getenv("QJ_SAMPLE_DATA", "").strip().lower() in {
             "1",
             "true",
@@ -265,6 +300,18 @@ class SDKClientMixin:
             f"instruments={summary.get('instruments')}, dates={summary.get('dates')}, "
             f"granularity={self._granularity}"
         )
+
+    def _apply_provider_benchmark_returns(self, payload: dict[str, Any]) -> None:
+        """Attach optional benchmark returns supplied by a local data provider."""
+        benchmark = payload.get("benchmark_returns")
+        if not isinstance(benchmark, dict) or not benchmark.get("index"):
+            return
+        import pandas as pd
+
+        index = pd.DatetimeIndex(pd.to_datetime(list(benchmark["index"])))
+        series = pd.Series(benchmark.get("data", []), index=index).astype("float64")
+        series.name = "benchmark"
+        self._benchmark_returns = series
 
     def _validate_data_completeness_response(self) -> None:
         """Fail closed when the provider declares or reveals a partial universe."""

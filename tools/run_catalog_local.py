@@ -14,6 +14,7 @@ Yahoo's bars, and order-mode/FX/futures examples lack provider contract specs.
 Usage:
     python tools/run_catalog_local.py
     python tools/run_catalog_local.py --filter weights --limit 5
+    python tools/run_catalog_local.py --cache-dir reports/_catalog_cache
     python tools/run_catalog_local.py --include-intraday --include-optimizers
 """
 
@@ -23,6 +24,7 @@ import argparse
 import ast
 import asyncio
 import contextlib
+import hashlib
 import importlib.util
 import inspect
 import io
@@ -42,7 +44,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backtester import Backtester  # noqa: E402
-from backtester.data import YahooDataProvider  # noqa: E402
+from backtester.data import YahooDataProvider, build_payload  # noqa: E402
 from backtester.portfolio.calc import risk as calc_risk  # noqa: E402
 from backtester.portfolio.config import resolve_risk_free_rate  # noqa: E402
 
@@ -52,17 +54,66 @@ DEFAULT_OUTPUT = ROOT / "reports" / "_catalog"
 _ORIGINAL_FETCH = Backtester._fetch_market_data
 _ORIGINAL_RUN = Backtester.run_strategy
 _CAPTURED: list[Backtester] = []
+_CACHE_DIR: Path | None = None
 
 
 class SkipRun(Exception):
     """Raised when the local provider cannot serve this example."""
 
 
+class CachedYahooDataProvider:
+    """Yahoo provider that persists fetched frames so runs are repeatable.
+
+    Yahoo returns adjusted closes that differ by ~1e-5 between identical
+    requests; path-dependent strategies (partial rebalancing, threshold
+    triggers) can bifurcate on that jitter. Caching the first fetch makes
+    catalogue reruns bit-identical. Frames are stored as pickle so float
+    values round-trip exactly.
+    """
+
+    def __init__(self, cache_dir: Path) -> None:
+        self._cache_dir = cache_dir
+        self._inner = YahooDataProvider()
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def load(
+        self,
+        *,
+        instruments: list[str],
+        start: str,
+        end: str,
+        granularity: str,
+    ) -> dict[str, Any]:
+        frames: dict[str, pd.DataFrame] = {}
+        for symbol in instruments:
+            normalized = str(symbol).strip().upper()
+            key = hashlib.sha256(f"{normalized}|{start}|{end}|{granularity}".encode()).hexdigest()[
+                :16
+            ]
+            path = self._cache_dir / f"{key}.pkl"
+            if path.is_file():
+                frame = pd.read_pickle(path)
+            else:
+                fetched = self._inner.load_frames(
+                    instruments=[symbol], start=start, end=end, granularity=granularity
+                )
+                frame = fetched[normalized]
+                frame.to_pickle(path)
+            frames[normalized] = frame
+        return build_payload(frames, source="yahoo-cache", dataset_id="yahoo-cache")
+
+
+def _make_provider() -> Any:
+    if _CACHE_DIR is None:
+        return YahooDataProvider()
+    return CachedYahooDataProvider(_CACHE_DIR)
+
+
 async def _local_fetch(self: Backtester) -> None:
     granularity = str(getattr(self, "_granularity", "1d")).strip().lower()
     if granularity not in {"1d", "1w"}:
         raise SkipRun(f"granularity {granularity!r} is not served by the Yahoo provider")
-    self._data_provider = YahooDataProvider()
+    self._data_provider = _make_provider()
     await _ORIGINAL_FETCH(self)
 
 
@@ -260,6 +311,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filter", default="", help="substring match on the strategy file name")
     parser.add_argument("--limit", type=int, default=0, help="stop after N strategies (0 = all)")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="persist fetched frames here; repeat runs reuse them",
+    )
     parser.add_argument("--include-intraday", action="store_true", help="keep intraday examples")
     parser.add_argument(
         "--include-optimizers",
@@ -270,9 +326,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    global _CACHE_DIR
     args = parse_args()
     os.environ["QJ_NO_REPORTS"] = "1"
     os.environ["QJ_QUIET"] = "1"
+    _CACHE_DIR = args.cache_dir.resolve() if args.cache_dir else None
     _install_patch()
 
     files = sorted(STRATEGIES.glob("example_*.py"))

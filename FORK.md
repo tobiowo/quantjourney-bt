@@ -18,9 +18,9 @@ is kept as a read-only source of engine fixes.
 |---|---|
 | Local data | `backtester/data/` providers (CSV, Parquet, Yahoo, in-memory), shared payload builder, `Backtester(data_provider=...)` |
 | Metrics | One risk-free-rate resolver; Sharpe/Sortino agree across summary, metrics table and charts; flat series report an undefined Sharpe |
-| Execution | Order quantities round to the contract increment; trade notionals apply futures/FX multiplier and lot size; O05/O07 breakout levels use raw close instead of dividend-adjusted close |
+| Execution | Order quantities round to the contract increment; trade notionals apply futures/FX multiplier and lot size; O05/O07 breakout levels use raw close; pre-trade risk is opt-in and its limits plus rejection counts are recorded in run metadata |
 | Sample data | `sample_data.py` rebuilt on the shared payload builder (output unchanged) |
-| Tests | Provider schema/end-to-end, metrics consistency, order-lifecycle coverage (limit, stop, stop-limit, trailing, bracket, OCO), contract sizing |
+| Tests | Provider schema/end-to-end, metrics consistency, order-lifecycle coverage (limit, stop, stop-limit, trailing, bracket, OCO), contract sizing, pre-trade defaults |
 | Tooling | `tools/byo_data_demo.py`, `tools/check_private_artifacts.py`, `tools/install_pre_commit_hook.py` |
 
 `main` also carries a reviewed `quality/mypy-baseline.json` refresh (788 → 710

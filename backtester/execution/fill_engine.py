@@ -132,6 +132,7 @@ class FillEngine:
         self._last_fill_by_order: dict[str, Fill] = {}
         self._commission_state_by_order: dict[str, dict[str, float]] = {}
         self._last_bar_by_instrument: dict[str, BarData] = {}
+        self._warned_rejection = False
         self._volume_history: defaultdict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=self.volume_lookback)
         )
@@ -161,6 +162,7 @@ class FillEngine:
         self._last_fill_by_order = {}
         self._commission_state_by_order = {}
         self._last_bar_by_instrument = {}
+        self._warned_rejection = False
         self._volume_history = defaultdict(lambda: deque(maxlen=self.volume_lookback))
 
     # ── Submit ─────────────────────────────────────────────────────────
@@ -190,6 +192,12 @@ class FillEngine:
         order.status = OrderStatus.REJECTED
         order.rejection_reason = str(reason)
         self._order_history.append(order)
+        if not self._warned_rejection:
+            self._warned_rejection = True
+            logger.warning(
+                "[Backtester] order rejected: %s (further rejections are recorded without logging)",
+                reason,
+            )
         return order.order_id
 
     def _submit_bracket(self, order: Order) -> str:

@@ -517,14 +517,14 @@ class Backtester(SDKClientMixin, ReportingMixin):
 
         # ── Risk model ──
         self._risk_model = risk_model  # None = no adjustment
+        # Pre-trade risk is opt-in: the default passthrough matches the class
+        # contract and the plain orders path. A configured PreTradeRisk is
+        # required to reject or cap orders (including leveraged weight targets).
+        self._pre_trade_risk_explicit = pre_trade_risk is not None
         if pre_trade_risk is None:
             from backtester.risk.pre_trade import PreTradeRisk
 
-            pre_trade_risk = PreTradeRisk(
-                max_margin_utilization=(
-                    1.0 if execution_mode == "weights" and weight_execution == "orders" else None
-                )
-            )
+            pre_trade_risk = PreTradeRisk()
         self.pre_trade_risk = pre_trade_risk
         if max_position_size is not None:
             if self.execution_mode == "weights" and risk_model is None:
@@ -1717,6 +1717,19 @@ class Backtester(SDKClientMixin, ReportingMixin):
             raise TypeError(
                 "cash_buffer must be a float fraction or pd.Series indexed by "
                 f"date, got {type(raw_cash_buffer).__name__}"
+            )
+
+        gross_target = target_weights.abs().sum(axis=1).max()
+        if (
+            not self._pre_trade_risk_explicit
+            and getattr(self.pre_trade_risk, "is_passthrough", False)
+            and np.isfinite(gross_target)
+            and float(gross_target) > 1.0 + 1e-9
+        ):
+            logger.warning(
+                "[Backtester] target gross leverage reaches %.2fx but no pre-trade "
+                "risk limits are configured; pass pre_trade_risk=PreTradeRisk(...) to cap it.",
+                float(gross_target),
             )
 
         degraded_fields: list[str] = []

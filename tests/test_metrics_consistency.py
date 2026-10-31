@@ -21,12 +21,26 @@ from backtester.portfolio.calc import risk as calc_risk
 from backtester.portfolio.config import resolve_risk_free_rate
 
 
+class _Trend(Backtester):
+    """Minimal strategy so the sample-data pipeline can run end to end."""
+
+    def _compute_signals(self) -> pd.DataFrame:
+        close = self.instruments_data.get_feature("close")
+        fast = close.rolling(20).mean()
+        slow = close.rolling(60).mean()
+        return ((fast > slow) & fast.notna() & slow.notna()).astype(float)
+
+    def _compute_weights(self) -> pd.DataFrame:
+        active = self.signals == 1.0
+        return active.div(active.sum(axis=1).replace(0, 1), axis=0).fillna(0.0)
+
+
 def _run_sample(monkeypatch, tmp_path, risk_free_rate: float | None = None) -> Backtester:
     if risk_free_rate is None:
         monkeypatch.delenv("QJ_RF_RATE_ANNUAL", raising=False)
     else:
         monkeypatch.setenv("QJ_RF_RATE_ANNUAL", str(risk_free_rate))
-    strategy = Backtester(
+    strategy = _Trend(
         instruments=["AAPL", "MSFT"],
         backtest_period={"start": "2020-01-01", "end": "2021-12-31"},
         source="sample",

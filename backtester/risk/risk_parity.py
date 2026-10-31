@@ -11,15 +11,16 @@ solution satisfies::
 
     w_i * (Σ w)_i  =  constant  ∀ i
 
-We use the standard iterative algorithm:
+We solve the equivalent strictly convex problem
 
-1. Start with inverse-vol weights.
-2. Compute marginal risk contribution.
-3. Scale each weight inversely to its marginal contribution.
-4. Renormalise.
-5. Repeat until convergence.
+    min_w  0.5 * wᵀΣw - (1/n) * Σ log(w_i)
 
-This converges in 5–15 iterations for typical 5–20 asset portfolios.
+by cyclical coordinate descent: each weight is set to the exact positive
+root of a quadratic, so the iterate converges instead of oscillating.
+Inverse-volatility weights are the starting point. Convergence typically
+takes fewer than 20 iterations for 5–20 asset portfolios, and the solution
+is stable under the small covariance perturbations data providers introduce
+between otherwise identical requests.
 
 Copyright (c) 2026 QuantJourney.
 Licensed under the Apache License 2.0.
@@ -142,40 +143,53 @@ class RiskParityModel(RiskModel):
         return out
 
     def _solve_erc(self, cov: np.ndarray, n: int) -> np.ndarray:
-        """
-        Solve for Equal Risk Contribution weights via iterative method.
+        """Solve Equal Risk Contribution weights by coordinate descent.
 
-        Returns weight vector (sums to 1, all positive).
+        Minimises the strictly convex problem
+
+            f(w) = 0.5 * wᵀΣw - (1/n) * Σ log(w_i)
+
+        whose stationary point satisfies ``w_i * (Σw)_i = 1/n`` for every i
+        (the ERC condition) and ``Σ w_i = 1``. Each coordinate is updated to
+        the exact positive root of the resulting quadratic, which makes the
+        solution stable under the tiny covariance perturbations that data
+        providers introduce between otherwise identical requests. The previous
+        multiplicative heuristic could oscillate and return an unconverged
+        iterate for correlated multi-asset covariances.
         """
-        # Start with inverse-vol
-        diag = np.diag(cov)
-        diag = np.maximum(diag, 1e-12)
-        w = 1.0 / np.sqrt(diag)
+        cov = np.asarray(cov, dtype=float)
+        if cov.shape != (n, n):
+            raise ValueError(f"covariance matrix must be {n}x{n}, got {cov.shape}")
+
+        cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
+        diagonal: np.ndarray = np.diag(cov).copy()
+        floor = 1e-12
+        diagonal = np.maximum(diagonal, floor)
+        np.fill_diagonal(cov, diagonal)
+
+        # Inverse-volatility start, matching the risk-parity literature.
+        w: np.ndarray = 1.0 / np.sqrt(diagonal)
         w = w / w.sum()
 
+        off_diagonal: np.ndarray = cov.copy()
+        np.fill_diagonal(off_diagonal, 0.0)
+
         for _ in range(self.max_iter):
-            sigma_w = cov @ w
-            # Marginal risk contribution
-            mrc = w * sigma_w
-            total_risk = mrc.sum()
-
-            if total_risk < 1e-16:
+            previous = w.copy()
+            for i in range(n):
+                a = diagonal[i]
+                b = float(off_diagonal[i] @ w)
+                w[i] = (-b + np.sqrt(b * b + 4.0 * a / n)) / (2.0 * a)
+            total = float(w.sum())
+            if not np.isfinite(total) or total <= 0.0:
                 return np.ones(n) / n
+            if np.max(np.abs(w - previous)) < self.tol:
+                break
 
-            # Target: each contributes 1/n of total risk
-            target_rc = total_risk / n
-
-            # Scale inversely to deviation from target
-            adj = np.where(mrc > 1e-16, target_rc / mrc, 1.0)
-            w_new = w * adj
-            w_new = np.maximum(w_new, 1e-10)
-            w_new = w_new / w_new.sum()
-
-            if np.max(np.abs(w_new - w)) < self.tol:
-                return w_new
-            w = w_new
-
-        return w
+        total = float(w.sum())
+        if not np.isfinite(total) or total <= 0.0:
+            return np.ones(n) / n
+        return w / total
 
     def __repr__(self) -> str:
         return f"RiskParityModel(lookback={self.lookback}, freq={self.rebalance_freq})"

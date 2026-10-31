@@ -242,15 +242,28 @@ class ReportingMixin:
         fill_engine = getattr(self, "fill_engine", None)
         risk_model = getattr(self, "_risk_model", None)
         pre_trade_risk = getattr(self, "pre_trade_risk", None)
+        rejected_orders = sum(
+            1
+            for order in getattr(fill_engine, "order_history", [])
+            if getattr(order, "rejection_reason", None)
+        )
+        risk_metadata = None
+        if pre_trade_risk is not None:
+            risk_metadata = {
+                "type": type(pre_trade_risk).__name__,
+                "max_margin_utilization": getattr(pre_trade_risk, "max_margin_utilization", None),
+                "max_gross_leverage": getattr(pre_trade_risk, "max_gross_leverage", None),
+                "allow_short": getattr(pre_trade_risk, "allow_short", None),
+                "is_passthrough": getattr(pre_trade_risk, "is_passthrough", None),
+            }
         return {
             "mode": getattr(self, "execution_mode", None),
             "weight_execution": getattr(self, "weight_execution", None),
             "fill_at": getattr(fill_engine, "fill_at", None),
             "rebalance_policy": str(getattr(self, "_rebalance_policy", "")),
             "risk_model": type(risk_model).__name__ if risk_model is not None else None,
-            "pre_trade_risk": (
-                type(pre_trade_risk).__name__ if pre_trade_risk is not None else None
-            ),
+            "pre_trade_risk": risk_metadata,
+            "rejected_orders": rejected_orders,
         }
 
     def _cost_metadata(self) -> dict[str, Any]:

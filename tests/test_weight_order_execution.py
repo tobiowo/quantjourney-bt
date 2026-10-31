@@ -247,6 +247,7 @@ def test_fill_time_risk_rejects_next_bar_gap_beyond_margin_limit() -> None:
         weights=weights,
         initial_capital=10_000.0,
         fill_at="open",
+        pre_trade_risk=PreTradeRisk(max_margin_utilization=1.0),
     )
 
     assert strategy.fill_engine.fill_history == []

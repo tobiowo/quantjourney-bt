@@ -33,12 +33,27 @@ uv pip install -e ".[data]"          # plus the optional extras you need
 python -m pytest -q                  # full suite
 python tools/verify_public_release.py
 python tools/byo_data_demo.py        # real Yahoo data, no account
+python tools/run_catalog_local.py    # all examples on Yahoo bars
+python tools/compare_catalog_local.py  # vs published quants.md cards
 python tools/check_private_artifacts.py --staged
 ```
 
 CI runs on every branch push and on pull requests into `main`: source/lint/type
 gate plus the Python 3.11–3.14 test matrix. Standard runners on a public
 repository are free; larger runners are not.
+
+## Validating against the published catalogue
+
+`run_catalog_local.py` executes each example's `main()` with the data fetch
+redirected to Yahoo bars; `compare_catalog_local.py` joins the results with the
+published quants.md cards. Last full run: 43 executed, 7 skipped (5 intraday,
+2 optimizer workflows), 0 failures. Against the 40 strategies with published
+metrics the Sharpe correlation was 0.97 (return 0.98), median absolute Sharpe
+delta 0.024, and 98% of strategies were within 0.25.
+
+Treat this as a data-source sanity check, not parity: the published cards use
+QuantJourney-managed data and execution assumptions, order-mode OHLC comes from
+Yahoo, and FX/futures examples run without provider contract specs.
 
 ## Staying current with upstream
 

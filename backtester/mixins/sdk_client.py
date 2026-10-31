@@ -15,7 +15,10 @@ Licensed under the Apache License 2.0.
 
 import logging
 import os
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 try:
     from backtester.utils.logger import logger
@@ -25,6 +28,10 @@ except Exception:
 
 class SDKClientMixin:
     """API authentication, market-data fetching, and server-side calculations."""
+
+    # Declared here so both this mixin and Backtester annotate the attribute
+    # with the same type; local data providers can attach a benchmark series.
+    _benchmark_returns: "pd.Series | None"
 
     @staticmethod
     def _replace_existing_session_enabled() -> bool:

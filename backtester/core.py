@@ -525,7 +525,7 @@ class Backtester(SDKClientMixin, ReportingMixin):
         self._rebalance_policy = resolved_rebalance_policy
 
         # ── Benchmark returns (used by the tracking-error rebalance trigger) ──
-        self._benchmark_returns = benchmark_returns
+        self._benchmark_returns: pd.Series | None = benchmark_returns
 
         # ── Risk model ──
         self._risk_model = risk_model  # None = no adjustment

@@ -9,7 +9,7 @@
       "types-python-dateutil": "2.9.0.20260518"
     }
   },
-  "error_count": 711,
+  "error_count": 710,
   "errors": [
     "[\"backtester/core.py\",\"arg-type\",\"Argument \\\"dates\\\" to \\\"ExecutionRebalanceEngine\\\" has incompatible type \\\"Index[Any]\\\"; expected \\\"DatetimeIndex\\\"\",\"4d28b5a0297ef8e6\"]",
     "[\"backtester/core.py\",\"arg-type\",\"Argument \\\"fill_engine\\\" to \\\"ExecutionSimulator\\\" has incompatible type \\\"FillEngine | None\\\"; expected \\\"FillEngine\\\"\",\"2430f504bb8d5d3f\"]",
@@ -65,7 +65,6 @@
     "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"0ac668b68967ce5e\"]",
     "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"29e5341bbb22737d\"]",
     "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"2ff68d7d5b620638\"]",
-    "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"3dc1c4017e35317d\"]",
     "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"5497ffd98b333eae\"]",
     "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"5590dfd5f09db949\"]",
     "[\"backtester/core.py\",\"no-untyped-def\",\"Function is missing a type annotation for one or more parameters\",\"5e0c2b5aa7d546ef\"]",

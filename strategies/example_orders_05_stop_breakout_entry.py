@@ -52,7 +52,9 @@ class StopBreakoutEntry(Backtester):
         )
 
     def _compute_orders(self, date, bars, current_positions, nav) -> None:
-        close = self.instruments_data.get_feature("adj_close")
+        # Use raw close for breakout levels: fills use raw prices, and adjusted
+        # closes drift with dividends, which would misplace absolute stop prices.
+        close = self.instruments_data.get_feature("close")
         if date not in close.index:
             return
 

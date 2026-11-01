@@ -19,6 +19,8 @@ Usage:
     python tools/research_harness.py --tickers AAPL,MSFT --source csv --data-dir data/daily
     python tools/research_harness.py --tickers NVDA --grid "fast=20,50;slow=100,200" \
         --walk-forward --wf-train-months 24 --wf-test-months 6
+    python tools/research_harness.py --tickers NVDA,AMD,KO --strategy news_sentiment \
+        --grid "horizon=3,5,10;min_articles=2,5" --news-file data/events/fnspid_daily.parquet
 """
 
 from __future__ import annotations
@@ -68,10 +70,12 @@ class _PresetStrategy(Backtester):
         *,
         params: dict[str, Any],
         eval_start: pd.Timestamp | None = None,
+        news_path: str | Path | None = None,
         **kwargs: Any,
     ) -> None:
         self.params = dict(params)
         self._eval_start = eval_start
+        self._news_path = Path(news_path) if news_path is not None else None
         super().__init__(**kwargs)
 
     def _equal_weight(self) -> pd.DataFrame:
@@ -140,22 +144,118 @@ class BuyHold(_PresetStrategy):
         return self._equal_weight()
 
 
+_NEWS_CACHE: dict[str, pd.DataFrame] = {}
+
+
+def _load_news_frame(path: Path) -> pd.DataFrame:
+    key = str(path.resolve())
+    if key not in _NEWS_CACHE:
+        frame = pd.read_parquet(path)
+        required = {"date", "ticker", "sentiment_mean", "unique_titles"}
+        missing = required - set(frame.columns)
+        if missing:
+            raise ValueError(f"news feature file {path} is missing columns: {sorted(missing)}")
+        frame = frame.copy()
+        frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
+        frame["ticker"] = frame["ticker"].astype(str).str.upper().str.strip()
+        frame["sent_sum"] = frame["sentiment_mean"].astype(float) * frame["unique_titles"].astype(
+            float
+        )
+        frame["unique_titles"] = frame["unique_titles"].astype(float)
+        _NEWS_CACHE[key] = frame[["date", "ticker", "sent_sum", "unique_titles"]]
+    return _NEWS_CACHE[key]
+
+
+class NewsSentiment(_PresetStrategy):
+    """Long names with positive aggregated news sentiment.
+
+    News dates are shifted to the first trading day strictly after publication
+    before being used, so date-only and after-close headlines cannot leak into
+    the session they were published in.
+    """
+
+    def _compute_signals(self) -> pd.DataFrame:
+        if self._news_path is None or not self._news_path.is_file():
+            raise FileNotFoundError(
+                f"news feature file not found: {self._news_path}; "
+                "run tools/build_news_features.py first"
+            )
+        close = self.instruments_data.get_feature("adj_close")
+        bar_dates = pd.DatetimeIndex(close.index)
+        if bar_dates.tz is not None:
+            bar_dates = bar_dates.tz_localize(None)
+        bar_dates = bar_dates.normalize()
+
+        news = _load_news_frame(self._news_path)
+        horizon = max(int(self.params.get("horizon", 5)), 1)
+        min_articles = max(int(self.params.get("min_articles", 3)), 1)
+        threshold = float(self.params.get("threshold", 0.0))
+        top_n = max(int(self.params.get("top_n", 3)), 1)
+
+        sent = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+        counts = pd.DataFrame(0.0, index=close.index, columns=close.columns)
+        for column_index, column in enumerate(close.columns):
+            subset = news[news["ticker"] == str(column).upper()]
+            if subset.empty:
+                continue
+            positions = bar_dates.searchsorted(pd.DatetimeIndex(subset["date"]), side="right")
+            valid = positions < len(bar_dates)
+            if not valid.any():
+                continue
+            grouped = (
+                pd.DataFrame(
+                    {
+                        "position": positions[valid],
+                        "sent_sum": subset["sent_sum"].to_numpy()[valid],
+                        "count": subset["unique_titles"].to_numpy()[valid],
+                    }
+                )
+                .groupby("position", sort=False)[["sent_sum", "count"]]
+                .sum()
+            )
+            sent.iloc[grouped.index, column_index] = grouped["sent_sum"].to_numpy()
+            counts.iloc[grouped.index, column_index] = grouped["count"].to_numpy()
+
+        rolling_sent = sent.rolling(horizon, min_periods=1).sum()
+        rolling_count = counts.rolling(horizon, min_periods=1).sum()
+        score = rolling_sent.div(rolling_count.where(rolling_count > 0))
+        eligible = rolling_count >= min_articles
+        if len(close.columns) == 1:
+            active = eligible & (score > threshold)
+        else:
+            masked = score.where(eligible)
+            ranks = masked.rank(axis=1, ascending=False)
+            active = (ranks <= top_n) & masked.notna() & (masked > threshold)
+        return active.fillna(False).astype(float)
+
+    def _compute_weights(self) -> pd.DataFrame:
+        return self._equal_weight()
+
+
 PRESETS: dict[str, type[_PresetStrategy]] = {
     "sma_trend": SMATrend,
     "momentum": Momentum,
     "mean_reversion": MeanReversion,
+    "news_sentiment": NewsSentiment,
     "buy_hold": BuyHold,
 }
 DEFAULT_PARAMS = {
     "sma_trend": {"fast": 50, "slow": 200},
     "momentum": {"lookback": 126, "top_n": 3},
     "mean_reversion": {"lookback": 20, "entry_z": 1.0},
+    "news_sentiment": {
+        "horizon": 5,
+        "top_n": 3,
+        "min_articles": 3,
+        "threshold": 0.0,
+    },
     "buy_hold": {},
 }
 DEFAULT_REBALANCE = {
     "sma_trend": "D",
     "momentum": "W",
     "mean_reversion": "D",
+    "news_sentiment": "D",
     "buy_hold": "BME",
 }
 
@@ -260,6 +360,7 @@ def _strategy_kwargs(
         "benchmark_name": args.benchmark,
         "reports_directory": str(runs_dir or (args.output / "runs")),
         "skip_analysis": True,
+        "news_path": getattr(args, "news_file", None),
     }
     if args.execution == "orders":
         kwargs.update(
@@ -760,6 +861,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vol-lookback", type=int, default=63)
     parser.add_argument("--benchmark", default="SPY")
     parser.add_argument("--source", choices=("yahoo", "csv"), default="yahoo")
+    parser.add_argument(
+        "--news-file",
+        type=Path,
+        default=ROOT / "data" / "events" / "fnspid_daily.parquet",
+        help="ticker-day news features for the news_sentiment preset",
+    )
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_CSV)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--refresh", action="store_true")
@@ -794,6 +901,10 @@ def main() -> int:
         raise SystemExit(f"start {args.start} must be before end {args.end}")
 
     args.rebalance = args.rebalance or DEFAULT_REBALANCE[args.strategy]
+    if args.strategy == "news_sentiment" and not Path(args.news_file).is_file():
+        raise SystemExit(
+            f"news feature file not found: {args.news_file}; run tools/build_news_features.py first"
+        )
     if args.output is None:
         stamp = f"{args.strategy}_{'_'.join(tickers)}"
         args.output = DEFAULT_OUTPUT / _sanitize(stamp)[:80]

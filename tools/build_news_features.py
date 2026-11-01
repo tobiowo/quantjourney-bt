@@ -30,6 +30,7 @@ import json
 import multiprocessing
 import os
 import time
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     parser.add_argument("--limit", type=int, default=0, help="limit raw rows (smoke tests only)")
+    parser.add_argument(
+        "--min-date",
+        default="1980-01-01",
+        help="drop rows dated before this day (FNSPID contains a few bogus 1914/1969 rows)",
+    )
     return parser.parse_args()
 
 
@@ -198,6 +204,12 @@ def main() -> int:
     )
     limit_clause = f"LIMIT {args.limit}" if args.limit > 0 else ""
 
+    input_rows = con.execute(f"SELECT COUNT(*) FROM {source}").fetchone()[0]
+    unmapped_rows = con.execute(
+        f"SELECT COUNT(*) FROM {source} WHERE {_quote(ticker_column)} IS NULL"
+    ).fetchone()[0]
+    min_date = date.fromisoformat(args.min_date)
+
     con.execute(
         f"""
         CREATE TEMP TABLE raw AS
@@ -219,13 +231,22 @@ def main() -> int:
     )
     con.execute(
         """
+        ALTER TABLE raw ADD COLUMN date_only BOOLEAN;
+        UPDATE raw SET date_only = (CAST(published_utc AS TIME) = TIME '00:00:00');
         ALTER TABLE raw ADD COLUMN published_et TIMESTAMP;
-        UPDATE raw
-        SET published_et = timezone('America/New_York', timezone('UTC', published_utc));
+        UPDATE raw SET published_et =
+            CASE WHEN date_only THEN published_utc
+                 ELSE timezone('America/New_York', timezone('UTC', published_utc))
+            END;
         ALTER TABLE raw ADD COLUMN trade_date DATE;
         UPDATE raw SET trade_date = CAST(published_et AS DATE);
         """
     )
+    dropped_old_rows = con.execute(
+        f"SELECT COUNT(*) FROM raw WHERE published_utc < TIMESTAMP '{min_date.isoformat()}'"
+    ).fetchone()[0]
+    if dropped_old_rows:
+        con.execute(f"DELETE FROM raw WHERE published_utc < TIMESTAMP '{min_date.isoformat()}'")
 
     raw_rows = con.execute("SELECT COUNT(*) FROM raw").fetchone()[0]
     if raw_rows == 0:
@@ -240,7 +261,17 @@ def main() -> int:
             trade_date,
             COUNT(*) AS raw_rows,
             CAST(
-                SUM(CASE WHEN CAST(published_et AS TIME) >= TIME '16:00:00' THEN 1 ELSE 0 END)
+                SUM(CASE WHEN date_only THEN 1 ELSE 0 END) AS BIGINT
+            ) AS date_only_rows,
+            CAST(
+                SUM(CASE WHEN NOT date_only THEN 1 ELSE 0 END) AS BIGINT
+            ) AS timed_rows,
+            CAST(
+                SUM(
+                    CASE WHEN NOT date_only
+                          AND CAST(published_et AS TIME) >= TIME '16:00:00'
+                         THEN 1 ELSE 0 END
+                )
                 AS BIGINT
             ) AS after_close_rows,
             MIN(published_et) AS first_et,
@@ -306,6 +337,8 @@ def main() -> int:
             r.trade_date AS date,
             r.ticker,
             r.raw_rows,
+            r.date_only_rows,
+            r.timed_rows,
             r.after_close_rows,
             r.first_et,
             r.last_et,
@@ -338,7 +371,10 @@ def main() -> int:
             AVG(sentiment_mean) AS sentiment_mean,
             AVG(positive_share) AS positive_share,
             AVG(negative_share) AS negative_share,
-            SUM(after_close_rows) * 1.0 / SUM(raw_rows) AS after_close_share
+            SUM(date_only_rows) AS date_only_rows,
+            SUM(timed_rows) AS timed_rows,
+            SUM(after_close_rows) AS after_close_rows,
+            SUM(after_close_rows) * 1.0 / NULLIF(SUM(timed_rows), 0) AS after_close_share
         FROM features
         """
         )
@@ -362,15 +398,28 @@ def main() -> int:
         .to_dict(orient="records")
     )
     duplicate_ratio = (raw_rows - deduped_rows) / raw_rows if raw_rows else 0.0
+    mapped_rows = raw_rows + dropped_old_rows
+    mapped_share = mapped_rows / input_rows if input_rows else 0.0
+    date_only_share = aggregate["date_only_rows"] / raw_rows if raw_rows else 0.0
 
     warnings: list[str] = []
-    if raw_rows < 10_000_000 and args.limit == 0:
-        warnings.append("raw row count is far below the 15.7M news records expected from FNSPID")
-    if raw_rows > 40_000_000:
-        warnings.append("raw row count is far above the expected FNSPID row count")
-    if after_close := aggregate.get("after_close_share"):
-        if after_close > 0.6:
-            warnings.append("more than 60% of headlines are timestamped after the US close")
+    if input_rows < 25_000_000 and args.limit == 0:
+        warnings.append(f"input has {input_rows:,} rows; the source card reports ~28.6M")
+    if mapped_share < 0.4 and not tickers:
+        warnings.append(
+            f"only {mapped_share:.1%} of input rows carry a ticker; "
+            "the remainder are general news without a symbol"
+        )
+    if date_only_share > 0.8:
+        warnings.append(
+            f"{date_only_share:.1%} of mapped headlines are date-only (00:00 UTC); "
+            "a strategy must apply a next-session lag"
+        )
+    if dropped_old_rows:
+        warnings.append(f"dropped {dropped_old_rows:,} rows before {min_date.isoformat()}")
+    after_close = aggregate.get("after_close_share") or 0.0
+    if after_close > 0.6:
+        warnings.append("more than 60% of timed headlines are timestamped after the US close")
 
     summary = {
         "source": {
@@ -382,10 +431,16 @@ def main() -> int:
             "tickers": tickers,
             "limit": args.limit,
             "workers": args.workers,
+            "min_date": min_date.isoformat(),
             "sentiment_positive_threshold": SENTIMENT_POSITIVE,
             "sentiment_negative_threshold": SENTIMENT_NEGATIVE,
         },
         "validation": {
+            "input_rows": int(input_rows),
+            "unmapped_rows": int(unmapped_rows),
+            "mapped_rows": int(mapped_rows),
+            "mapped_share": float(mapped_share),
+            "dropped_old_rows": int(dropped_old_rows),
             "raw_rows": int(raw_rows),
             "deduped_rows": int(deduped_rows),
             "duplicate_ratio": float(duplicate_ratio),
@@ -393,10 +448,14 @@ def main() -> int:
             "tickers": int(aggregate["tickers"]),
             "first_date_et": str(aggregate["first_date"]),
             "last_date_et": str(aggregate["last_date"]),
+            "date_only_rows": int(aggregate["date_only_rows"]),
+            "timed_rows": int(aggregate["timed_rows"]),
+            "date_only_share": float(date_only_share),
+            "after_close_rows": int(aggregate["after_close_rows"]),
+            "after_close_share": float(aggregate["after_close_share"] or 0.0),
             "sentiment_mean": float(aggregate["sentiment_mean"]),
             "positive_share": float(aggregate["positive_share"]),
             "negative_share": float(aggregate["negative_share"]),
-            "after_close_share": float(aggregate["after_close_share"] or 0.0),
             "yearly_rows": yearly,
             "top_tickers": top_tickers,
             "warnings": warnings,

@@ -24,7 +24,6 @@ import argparse
 import ast
 import asyncio
 import contextlib
-import hashlib
 import importlib.util
 import inspect
 import io
@@ -44,9 +43,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backtester import Backtester  # noqa: E402
-from backtester.data import YahooDataProvider, build_payload  # noqa: E402
+from backtester.data import YahooDataProvider  # noqa: E402
 from backtester.portfolio.calc import risk as calc_risk  # noqa: E402
 from backtester.portfolio.config import resolve_risk_free_rate  # noqa: E402
+from tools.data_cache import CachedYahooDataProvider  # noqa: E402
 
 STRATEGIES = ROOT / "strategies"
 DEFAULT_OUTPUT = ROOT / "reports" / "_catalog"
@@ -59,48 +59,6 @@ _CACHE_DIR: Path | None = None
 
 class SkipRun(Exception):
     """Raised when the local provider cannot serve this example."""
-
-
-class CachedYahooDataProvider:
-    """Yahoo provider that persists fetched frames so runs are repeatable.
-
-    Yahoo returns adjusted closes that differ by ~1e-5 between identical
-    requests; path-dependent strategies (partial rebalancing, threshold
-    triggers) can bifurcate on that jitter. Caching the first fetch makes
-    catalogue reruns bit-identical. Frames are stored as pickle so float
-    values round-trip exactly.
-    """
-
-    def __init__(self, cache_dir: Path) -> None:
-        self._cache_dir = cache_dir
-        self._inner = YahooDataProvider()
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-
-    def load(
-        self,
-        *,
-        instruments: list[str],
-        start: str,
-        end: str,
-        granularity: str,
-    ) -> dict[str, Any]:
-        frames: dict[str, pd.DataFrame] = {}
-        for symbol in instruments:
-            normalized = str(symbol).strip().upper()
-            key = hashlib.sha256(f"{normalized}|{start}|{end}|{granularity}".encode()).hexdigest()[
-                :16
-            ]
-            path = self._cache_dir / f"{key}.pkl"
-            if path.is_file():
-                frame = pd.read_pickle(path)
-            else:
-                fetched = self._inner.load_frames(
-                    instruments=[symbol], start=start, end=end, granularity=granularity
-                )
-                frame = fetched[normalized]
-                frame.to_pickle(path)
-            frames[normalized] = frame
-        return build_payload(frames, source="yahoo-cache", dataset_id="yahoo-cache")
 
 
 def _make_provider() -> Any:
